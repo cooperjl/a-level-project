@@ -1,4 +1,3 @@
-# Imports
 import sys
 from PySide6.QtWidgets import (QDockWidget, QMainWindow, QApplication, 
         QVBoxLayout, QGroupBox, QRadioButton, QGraphicsView, QGraphicsScene, 
@@ -45,13 +44,12 @@ class MainWindow(QMainWindow):
                 self.nodes.append(self.nodes.pop(self.nodes.index(collision_point)))
             else:
                 self.add_ellipse(point, self.diameter)
-                self.nodes.append(point) 
+                self.nodes.append(point)
 
     @Slot(QPointF)
     def rclick_handler(self, point):
         pass
     
-
     @Slot(QPointF)
     def ghost_handler(self, point):
         if self.nodes:
@@ -88,7 +86,7 @@ class MainWindow(QMainWindow):
         return line
     
     def collision_checker(self, point):
-        ellipse = self.add_ellipse(point, self.diameter/4)
+        ellipse = self.add_ellipse(point, self.diameter / 4)
         collision = self.scene.collidingItems(ellipse)
         self.scene.removeItem(ellipse)
         if len(collision) > 0 and isinstance(collision[0], QGraphicsEllipseItem):
@@ -122,8 +120,8 @@ class MainWindow(QMainWindow):
             radius *= -1
         return QPointF(point.x() + radius, point.y() + radius)
 
-    def main_view_updater(self):       
-        rect = QRect(QPoint(0,0), QSize(1920,1080))
+    def main_view_updater(self):
+        rect = QRect(QPoint(0, 0), self.main_view.size())# QSize(1920, 1080))
         self.scene.setSceneRect(rect)
 
     def resizeEvent(self, _): # override resizeEvent, _ to show event is unused
@@ -134,7 +132,7 @@ class MainWindow(QMainWindow):
 class MainView(QGraphicsView):
     lclick_handler = Signal(QPointF)
     rclick_handler = Signal(QPointF)
-    ghost_handler = Signal(QPointF) # handles ghost line
+    ghost_handler = Signal(QPointF)
     def __init__(self, scene):
         super().__init__()
         super().setScene(scene)

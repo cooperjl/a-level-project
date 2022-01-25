@@ -1,11 +1,10 @@
 # Imports
 import sys
-from PySide6.QtWidgets import (QDockWidget, QMainWindow, QApplication, QWidget,
-                                QLabel, QVBoxLayout, QGroupBox, QRadioButton, 
-                                QGraphicsView, QGraphicsScene, QGraphicsEllipseItem,
-                                QGraphicsLineItem)
+from PySide6.QtWidgets import (QDockWidget, QMainWindow, QApplication, 
+        QVBoxLayout, QGroupBox, QRadioButton, QGraphicsView, QGraphicsScene, 
+        QGraphicsEllipseItem, QGraphicsLineItem)
 from PySide6.QtCore import Qt, Signal, Slot, QRect, QPoint, QSize, QLineF, QPointF
-from PySide6.QtGui import QPainter, QPen, QColor, QTransform, QBrush
+from PySide6.QtGui import QPainter, QPen, QColor, QBrush
 
 
 class MainWindow(QMainWindow):

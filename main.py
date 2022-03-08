@@ -1,11 +1,14 @@
+from string import ascii_uppercase
 import sys
-import numpy as np
-from PySide6.QtWidgets import (QDockWidget, QMainWindow, QApplication, 
-        QVBoxLayout, QGroupBox, QRadioButton, QGraphicsView, QGraphicsScene, 
-        QGraphicsEllipseItem, QGraphicsLineItem, QRubberBand)
-from PySide6.QtCore import Qt, Signal, Slot, QRect, QPoint, QSize, QLineF, QPointF
-from PySide6.QtGui import QPainter, QPen, QColor, QBrush, QTransform
+from PySide6.QtCore import Qt, Slot
+from PySide6.QtWidgets import (QDockWidget, QMainWindow, QApplication, QVBoxLayout, 
+        QGroupBox, QRadioButton, QGraphicsScene, QFileDialog, QMenu, QStatusBar, 
+        QLabel, QPushButton)
+from PySide6.QtGui import QPainter, QAction, QKeySequence
 
+from project.mainview import MainView
+from project.zoombar import ZoomBar
+from project.astar import astar_algoritm
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -16,208 +19,115 @@ class MainWindow(QMainWindow):
         self.right_groupbox = QGroupBox()
         self.rightdock = QDockWidget("Configuration")
 
+        self.zoom_bar = ZoomBar()
+        self.status_bar = QStatusBar(self)
+
+        self.arc_label = QLabel(f" Arcs: 0 ")
+        self.node_label = QLabel(f"Nodes: 0 ")
+
         self.config_ui()
         self.setCentralWidget(self.main_view)
         self.addDockWidget(Qt.RightDockWidgetArea, self.rightdock)
+        self.setStatusBar(self.status_bar)
 
     def config_ui(self):
-        self.setWindowTitle("Chart Test")
+        self.setWindowTitle("Shortest Path Plotter")
         self.main_view.setRenderHint(QPainter.Antialiasing)
-        self.main_view.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        self.main_view.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
 
+        normal_radio = QRadioButton("Normal Node", checked=True)
+        terminal_radio = QRadioButton("Terminal Node")
+        normal_radio.toggled.connect(self.main_view.set_node_flag_normal)
+        terminal_radio.toggled.connect(self.main_view.set_node_flag_terminal)
+
+        start_button = QPushButton('Button')
+        start_button.pressed.connect(self.get_nodes)
+        
         vbox = QVBoxLayout()
-        vbox.addWidget(QRadioButton("Radio Button 1", checked=True))
-        vbox.addWidget(QRadioButton("Radio Button 2"))
+        vbox.addWidget(normal_radio)
+        vbox.addWidget(terminal_radio)
+        vbox.addWidget(start_button)
         vbox.addStretch(1)
-        self.right_groupbox.setLayout(vbox)
+        self.right_groupbox.setLayout(vbox)       
 
-        self.rightdock.setAllowedAreas(Qt.LeftDockWidgetArea |
-                Qt.RightDockWidgetArea)
-        self.rightdock.setFeatures(QDockWidget.DockWidgetFloatable |
-                            QDockWidget.DockWidgetMovable)
+        self.rightdock.setFeatures(QDockWidget.NoDockWidgetFeatures)
         self.rightdock.setWidget(self.right_groupbox)
 
-    def main_view_updater(self):
-        rect = QRect(QPoint(0, 0), self.main_view.size())# QSize(1920, 1080))
-        self.scene.setSceneRect(rect)
+        undo_action = self.main_view.get_undo_action()
+        undo_action.setShortcut(QKeySequence.StandardKey.Undo)
 
-    def resizeEvent(self, _): # override resizeEvent, _ to show event is unused
-        self.main_view_updater()
+        redo_action = self.main_view.get_redo_action()
+        redo_action.setShortcut(QKeySequence.StandardKey.Redo)
 
+        zoom_in_action = QAction('Zoom in', self)
+        zoom_in_action.setShortcut(QKeySequence.StandardKey.ZoomIn)
+        zoom_in_action.triggered.connect(self.zoom_bar.zoom_in_event)
 
-# Custom view inheriting QGraphicsView
-class MainView(QGraphicsView):
-    def __init__(self, scene):
-        super().__init__(scene)
-        self.scene = scene
+        zoom_out_action = QAction('Zoom out', self)
+        zoom_out_action.setShortcut(QKeySequence.StandardKey.ZoomOut)
+        zoom_out_action.triggered.connect(self.zoom_bar.zoom_out_event)
 
-        self.nodes = []
-        
-        self.mouse_flag = 0 # 0 when no click, 1 when click and 2 when dragged
-        self.zoom_level = 0
-        self.diameter = 16
-        
-        self.band_origin = QPointF(0, 0)
-        
-        self.rubber_band = None
-        self.previous_pos = None
+        add_image_action = QAction('Add Image...', self)
+        add_image_action.setShortcut(QKeySequence(Qt.CTRL | Qt.Key_I))
+        add_image_action.triggered.connect(self.open_file_dialog)
 
-    def mousePressEvent(self, event):
-        if event.button() == Qt.LeftButton:
-            self.mouse_flag = 1
-            point = event.scenePosition()
-            collision_point = self.detect_collision(point)
+        filemenu = QMenu('File', self)
+        filemenu.addAction(add_image_action)
 
-            if collision_point:
-                if self.nodes.count(collision_point) > 0:
-                    self.nodes.append(self.nodes.pop(self.nodes.index(collision_point)))
-                else:
-                    self.add_ellipse(collision_point, self.diameter)
-                    self.nodes.append(collision_point)                    
-            else:
-                self.add_ellipse(point, self.diameter)
-                self.nodes.append(point)
+        editmenu = QMenu('Edit', self)
+        editmenu.addActions((undo_action, redo_action))
 
-        elif event.button() == Qt.RightButton:
-            self.band_origin = event.scenePosition().toPoint()
-            self.rubber_band = QRubberBand(QRubberBand.Rectangle, self)
-            self.rubber_band.setGeometry(QRect(self.band_origin, QSize()))
-            self.rubber_band.show()
+        viewmenu = QMenu('View', self)
+        viewmenu.addActions((zoom_in_action, zoom_out_action))
 
-        elif event.button() == Qt.MiddleButton:
-            pass
+        menubar = self.menuBar()
+        menubar.addMenu(filemenu)
+        menubar.addMenu(editmenu)
+        menubar.addMenu(viewmenu)
 
-    def mouseMoveEvent(self, event):
-        if event.buttons() == Qt.LeftButton:
-            if self.mouse_flag == 2:
-                self.scene.removeItem(self.scene.items()[len(self.nodes)+1])
-                self.scene.removeItem(self.scene.items()[0])
-            else:
-                self.mouse_flag = 2
+        self.status_bar.addPermanentWidget(self.zoom_bar)
+        self.status_bar.addWidget(self.arc_label)
+        self.status_bar.addWidget(self.node_label)
+        self.status_bar.setMaximumHeight(26)
 
-            point = event.scenePosition()
-            collision_point = self.detect_collision(point)
-            if collision_point:
-                point = collision_point
-            self.add_ellipse(point, self.diameter)
-            self.add_line(self.nodes[-1], point)
+        self.zoom_bar.zoomslider.valueChanged.connect(self.zoom_event)
+        self.main_view.wheel_event.connect(self.wheel_slot)
+        self.scene.changed.connect(self.scene_change)
+    
+    def scene_change(self):
+        self.arc_label.setText(f" Arcs: {self.main_view.get_line_count()} ")
+        self.node_label.setText(f"Nodes: {self.main_view.get_node_count()} ")
+    
+    def zoom_event(self, level):
+        level -= 7 # level from bar is always positive but functions use 0 as the middle
+        self.main_view.set_zoom_level(level)        
 
-        elif event.buttons() == Qt.RightButton:
-            point = event.scenePosition().toPoint()
-            self.rubber_band.setGeometry(QRect(self.band_origin, point).normalized())
+    def get_nodes(self):
+        graph, start, end, nodes = self.main_view.get_graph()
+        if graph and start and end and nodes:
+            path = astar_algoritm(start, end, graph, nodes)
+            print(path)
+            print(nodes)
+            n_nodes = [nodes[ascii_uppercase.index(node)] for node in path]
+            print(n_nodes)
+            self.main_view.colour_change(n_nodes)
 
-        elif event.buttons() == Qt.MiddleButton:
-            self.setDragMode(QGraphicsView.ScrollHandDrag)
-            pan = self.previous_pos - event.scenePosition()
-            #  self.scroll(pan.x(), pan.y())
-            self.previous_pos = event.scenePosition()
-
-    def mouseReleaseEvent(self, event):
-        if event.button() == Qt.LeftButton:
-            if self.mouse_flag == 2:
-                point = event.scenePosition()
-                collision_point = self.detect_collision(point)
-                item = self.scene.itemAt(point, QTransform())
-                if item:
-                    collision = self.scene.collidingItems(item)
-                else:
-                    collision = []
-                first_node = self.scene.items()[0]
-                if len(collision) == 1 and first_node == self.scene.items()[1].scenePos():
-                    self.scene.removeItem(self.scene.items()[len(self.nodes)+1])
-                    self.scene.removeItem(first_node)
-                elif collision_point in self.nodes:
-                    self.scene.removeItem(first_node)
-                else:
-                    self.nodes.append(point)
-                self.mouse_flag = 0
-
-        elif event.button() == Qt.RightButton:
-            rect = self.rubber_band.geometry()
-            if rect.size() == QSize(0, 0):
-                collision_point = self.detect_collision(event.scenePosition())
-                item = self.scene.itemAt(collision_point, QTransform())
-                self.remove_items(item)
-            else:
-                for item in self.scene.items(rect):
-                    self.remove_items(item)
-
-            self.rubber_band.hide()
-
-        elif event.button() == Qt.MiddleButton:
-            self.setDragMode(QGraphicsView.NoDrag)
-        
-    def wheelEvent(self, event):
-        new_zoom = self.zoom_level
-        if event.angleDelta().y() > 0:
-            sf = 1.25
-            new_zoom += 1
+    @Slot(int)
+    def wheel_slot(self, delta):
+        if delta > 0:
+            self.zoom_bar.zoom_in_event()
         else:
-            sf = 0.8
-            new_zoom -= 1
+            self.zoom_bar.zoom_out_event()
 
-        if new_zoom <= 5 and new_zoom >= 0:
-            self.zoom_level = new_zoom
-            self.scale(sf, sf)
+    def open_file_dialog(self):
+        dialog = QFileDialog(self)
+        dialog.setFileMode(QFileDialog.ExistingFile)
+        dialog.setNameFilter("Images (*.png *.jpg *.bmp)")
+        dialog.setViewMode(QFileDialog.Detail)
 
-    def detect_collision(self, point):
-        ellipse = self.add_ellipse(point, self.diameter)
-        collision = self.scene.collidingItems(ellipse)
-        ellipse_pos = self.adjust_pos(ellipse.pos(), True, self.diameter)
-        self.scene.removeItem(ellipse)
-        if len(collision) > 0 and isinstance(collision[0], QGraphicsEllipseItem):
-            point = collision[0].scenePos()
-            point = self.adjust_pos(point, True, self.diameter)
-            return point
-        elif len(collision) > 0 and isinstance(collision[0], QGraphicsLineItem):
-            line = collision[0].line()
-            p1, p2 = line.p1(), line.p2()
-            p1 = np.array([p1.x(), p1.y(), 1])
-            p2 = np.array([p2.x(), p2.y(), 1])
-            point = ellipse_pos.toTuple()
-            # matrix to rotate 90 degrees about point
-            rot_matrix = np.array([[0,-1,point[1]+point[0]], [1,0,(-point[0])+point[1]],[0,0,1]])
-            
-            h_line = np.cross(p1, p2)
-            n_line = np.matmul(h_line, rot_matrix)
+        if dialog.exec():
+            img = dialog.selectedFiles()[0]
+            self.main_view.set_image(img)
 
-            snap_point = np.cross(h_line, n_line)
-            x,y = snap_point[0:2]/snap_point[2]
-            return QPointF(x, y)
-        else:
-            return None
-
-    def add_ellipse(self, point: QPointF, diameter):
-        colour = QColor(0, 0, 0)
-        point = self.adjust_pos(point, False, diameter)
-        rect = QRect(QPoint(0, 0), QSize(diameter, diameter))
-        ellipse = self.scene.addEllipse(rect, QPen(), QBrush(colour))
-        ellipse.setPos(point)
-        ellipse.setZValue(1)
-        return ellipse
-
-    def add_line(self, p1: QPointF, p2: QPointF):
-        line = QLineF(p1, p2)
-        pen = QPen()
-        pen.setColor(QColor(0, 0, 0))
-        pen.setWidth(1)
-        self.scene.addLine(line, pen)
-        return line
-
-    def adjust_pos(self, point, positive, diameter):
-        radius = diameter / 2
-        if not positive:
-            radius *= -1
-        return QPointF(point.x() + radius, point.y() + radius)
-
-    def remove_items(self, item):
-        if isinstance(item, QGraphicsEllipseItem):
-            collision = self.scene.collidingItems(item)
-            for line in collision:
-                self.scene.removeItem(line)
-            self.nodes.remove(self.adjust_pos(item.scenePos(), True, self.diameter))
-        self.scene.removeItem(item)
 
 # Main Function
 if __name__ == "__main__":
@@ -225,5 +135,4 @@ if __name__ == "__main__":
     window = MainWindow()
     window.resize(800, 600)
     window.show()
-    window.main_view_updater()
     sys.exit(app.exec())

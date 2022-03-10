@@ -1,7 +1,7 @@
 from PySide6.QtWidgets import QGraphicsScene
-from PySide6.QtGui import QUndoCommand
+from PySide6.QtGui import QUndoCommand, QColor
 
-from project.nodeitem import NodeItem
+from project.graphitems import NodeItem, LineItem
 
 class AddItemsCommand(QUndoCommand):
     def __init__(self, scene: QGraphicsScene, items: list):
@@ -44,3 +44,18 @@ class SetStateCommand(QUndoCommand):
 
     def redo(self):
         self.item.swap_polygon()
+
+class HighlightPathCommand(QUndoCommand):
+    def __init__(self, items: list, colour = QColor):
+        super().__init__()
+        self.items = items
+        self.colour = colour
+        self.old_colour = items[0].default_colour # assuming all same colour
+    
+    def undo(self):
+        for item in self.items:
+            item.set_colour(self.old_colour)
+
+    def redo(self):
+        for item in self.items:
+            item.set_colour(self.colour)

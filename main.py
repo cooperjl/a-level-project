@@ -1,9 +1,9 @@
-from string import ascii_uppercase
 import sys
+import json
 from PySide6.QtCore import Qt, Slot
 from PySide6.QtWidgets import (QDockWidget, QMainWindow, QApplication, QVBoxLayout, 
         QGroupBox, QRadioButton, QGraphicsScene, QFileDialog, QMenu, QStatusBar, 
-        QLabel, QPushButton)
+        QLabel, QPushButton, QMessageBox, QInputDialog)
 from PySide6.QtGui import QPainter, QAction, QKeySequence
 
 from project.mainview import MainView
@@ -24,6 +24,12 @@ class MainWindow(QMainWindow):
 
         self.arc_label = QLabel(f" Arcs: 0 ")
         self.node_label = QLabel(f"Nodes: 0 ")
+        self.length_label = QLabel(f"Route Length: ? ")
+
+
+        self.file_name = ''
+        self.unit = 'm'
+        self.scale = 0
 
         self.config_ui()
         self.setCentralWidget(self.main_view)
@@ -39,8 +45,8 @@ class MainWindow(QMainWindow):
         normal_radio.toggled.connect(self.main_view.set_node_flag_normal)
         terminal_radio.toggled.connect(self.main_view.set_node_flag_terminal)
 
-        start_button = QPushButton('Button')
-        start_button.pressed.connect(self.get_nodes)
+        start_button = QPushButton('Find Path')
+        start_button.pressed.connect(self.find_shortest_path)
         
         vbox = QVBoxLayout()
         vbox.addWidget(normal_radio)
@@ -58,23 +64,45 @@ class MainWindow(QMainWindow):
         redo_action = self.main_view.get_redo_action()
         redo_action.setShortcut(QKeySequence.StandardKey.Redo)
 
-        zoom_in_action = QAction('Zoom in', self)
+        zoom_in_action = QAction('Zoom In', self)
         zoom_in_action.setShortcut(QKeySequence.StandardKey.ZoomIn)
         zoom_in_action.triggered.connect(self.zoom_bar.zoom_in_event)
 
-        zoom_out_action = QAction('Zoom out', self)
+        zoom_out_action = QAction('Zoom Out', self)
         zoom_out_action.setShortcut(QKeySequence.StandardKey.ZoomOut)
         zoom_out_action.triggered.connect(self.zoom_bar.zoom_out_event)
 
         add_image_action = QAction('Add Image...', self)
         add_image_action.setShortcut(QKeySequence(Qt.CTRL | Qt.Key_I))
-        add_image_action.triggered.connect(self.open_file_dialog)
+        add_image_action.triggered.connect(self.image_file_dialog)
+
+        save_action = QAction('Save', self)
+        save_action.setShortcut(QKeySequence.StandardKey.Save)
+        save_action.triggered.connect(self.save_action)
+
+        save_as_action = QAction('Save As...', self)
+        save_as_action.setShortcut(QKeySequence(Qt.CTRL | Qt.SHIFT |Qt.Key_S))
+        save_as_action.triggered.connect(self.save_file_dialog)
+
+        open_action = QAction('Load File...', self)
+        open_action.setShortcut(QKeySequence.StandardKey.Open)
+        open_action.triggered.connect(self.load_file_dialog)
+
+        reset_action = QAction('Reset View', self)
+        reset_action.setShortcut(QKeySequence(Qt.CTRL | Qt.Key_R))
+        reset_action.triggered.connect(self.reset_view)
+
+        set_scale_action = QAction('Set Scale...', self)
+        set_scale_action.triggered.connect(self.set_scale_dialogue)
+
+        set_unit_action = QAction('Set Unit...', self)
+        set_unit_action.triggered.connect(self.set_unit_dialogue)
 
         filemenu = QMenu('File', self)
-        filemenu.addAction(add_image_action)
+        filemenu.addActions((reset_action, add_image_action, open_action, save_action, save_as_action))
 
         editmenu = QMenu('Edit', self)
-        editmenu.addActions((undo_action, redo_action))
+        editmenu.addActions((undo_action, redo_action, set_scale_action, set_unit_action))
 
         viewmenu = QMenu('View', self)
         viewmenu.addActions((zoom_in_action, zoom_out_action))
@@ -87,6 +115,7 @@ class MainWindow(QMainWindow):
         self.status_bar.addPermanentWidget(self.zoom_bar)
         self.status_bar.addWidget(self.arc_label)
         self.status_bar.addWidget(self.node_label)
+        self.status_bar.addWidget(self.length_label)
         self.status_bar.setMaximumHeight(26)
 
         self.zoom_bar.zoomslider.valueChanged.connect(self.zoom_event)
@@ -101,15 +130,32 @@ class MainWindow(QMainWindow):
         level -= 7 # level from bar is always positive but functions use 0 as the middle
         self.main_view.set_zoom_level(level)        
 
-    def get_nodes(self):
+    def find_shortest_path(self):
         graph, start, end, nodes = self.main_view.get_graph()
-        if graph and start and end and nodes:
+        if graph and start is not None and end is not None and nodes:
             path = astar_algoritm(start, end, graph, nodes)
-            print(path)
-            print(nodes)
-            n_nodes = [nodes[ascii_uppercase.index(node)] for node in path]
-            print(n_nodes)
-            self.main_view.colour_change(n_nodes)
+            if path:
+                n_nodes = [nodes[node] for node in path]
+                route_length = self.main_view.highlight_path(n_nodes)
+                if self.scale == 0:
+                    msg = 'You should set a valid scale to get the route length.'
+                    self.length_label.setText(f"Route Length: ? ")
+                else:
+                    route_length_str = f'{route_length*self.scale:.2f}{self.unit}'
+                    msg = f'Route length is {route_length_str}'
+                    self.length_label.setText(f"Route Length: {route_length_str} ")
+                
+                msg_box = QMessageBox()
+                msg_box.setWindowTitle("Route Length")
+                msg_box.setText(msg)
+                msg_box.exec()
+
+            else:
+                self.show_error_box("No available route between the start and end node.")
+        elif not graph and start and end and nodes:
+            self.show_error_box("Not enough arcs are drawn.")
+        else:
+            self.show_error_box("A start and an end node are required.")
 
     @Slot(int)
     def wheel_slot(self, delta):
@@ -118,7 +164,7 @@ class MainWindow(QMainWindow):
         else:
             self.zoom_bar.zoom_out_event()
 
-    def open_file_dialog(self):
+    def image_file_dialog(self):
         dialog = QFileDialog(self)
         dialog.setFileMode(QFileDialog.ExistingFile)
         dialog.setNameFilter("Images (*.png *.jpg *.bmp)")
@@ -127,6 +173,61 @@ class MainWindow(QMainWindow):
         if dialog.exec():
             img = dialog.selectedFiles()[0]
             self.main_view.set_image(img)
+            self.file_name = ''
+
+    def save_file_dialog(self):
+        filename, _ = QFileDialog.getSaveFileName(self, "Save File", "", "JSON (*.json)")
+        if filename:
+            self.save_event(filename)
+            self.file_name = filename
+    
+    def load_file_dialog(self):
+        dialog = QFileDialog(self)
+        dialog.setFileMode(QFileDialog.ExistingFile)
+        dialog.setNameFilter("JSON (*.json)")
+        dialog.setViewMode(QFileDialog.Detail)
+
+        if dialog.exec():
+            file = dialog.selectedFiles()[0]
+            self.load_event(file)
+
+    def save_event(self, filename):
+        data = self.main_view.get_scene_state()
+        with open(filename, "w") as f:
+            json.dump(data, f)
+    
+    def load_event(self, filename):
+        with open(filename, "r") as f:
+            data = json.load(f)
+        
+        self.main_view.load_scene_state(data)
+
+    def reset_view(self):
+        self.main_view.set_image('')
+        self.file_name = ''
+
+    def save_action(self):
+        if self.file_name:
+            self.save_event(self.file_name)
+        else:
+            self.save_file_dialog()
+
+    def show_error_box(self, error):
+        msg_box = QMessageBox()
+        # msg_box.setIcon(QMessageBox.Warning)
+        msg_box.setWindowTitle("Error")
+        msg_box.setText(error)
+        msg_box.exec()
+
+    def set_scale_dialogue(self):
+        actual_size, _ = QInputDialog.getDouble(self, 'Scale', f'Width of the image or scene in {self.unit}:')
+        scene_size = self.main_view.sceneRect().width()
+        scale = actual_size/scene_size
+        self.scale = scale
+    
+    def set_unit_dialogue(self):
+        unit, _ = QInputDialog.getText(self, 'Unit', f'Unit:')
+        self.unit = unit
 
 
 # Main Function

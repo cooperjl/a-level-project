@@ -1,8 +1,8 @@
 import numpy as np
 
-from PySide6.QtCore import QRect, QPoint, QSize
-from PySide6.QtGui import QPainterPath, QTransform
-from PySide6.QtWidgets import QGraphicsPolygonItem
+from PySide6.QtCore import QRect, QPoint, QSize, QLineF
+from PySide6.QtGui import QPainterPath, QTransform, QPainterPath, QPen, QColor
+from PySide6.QtWidgets import QGraphicsPolygonItem, QGraphicsLineItem
 
 
 class NodeItem(QGraphicsPolygonItem):
@@ -18,7 +18,8 @@ class NodeItem(QGraphicsPolygonItem):
 
     def create_star(self):
         star_path = QPainterPath()
-        for i in range(11):
+        star_path.moveTo(0, 6.4)
+        for i in range(1, 10):
             angle = (np.pi / 5)
             r = self.radius * (i % 2 + 0.8)
             x = np.sin(angle * i) * r;
@@ -53,3 +54,32 @@ class NodeItem(QGraphicsPolygonItem):
         else:
             self.setPolygon(self.ellipse)
             self.state = 0
+
+class LineItem(QGraphicsLineItem):
+    def __init__(self, line: QLineF, pen: QPen):
+        super().__init__()
+        self.setLine(line)
+        
+
+        self.pen = pen
+        self.setPen(self.pen)
+        self.default_colour = QColor(255, 255, 255)
+        self.pen_colour = QColor(0, 0, 0)
+
+    def paint(self, painter, option, widget):
+        outline = QPainterPath()
+        outline.moveTo(self.line().p1())
+        outline.lineTo(self.line().p2())
+        stroke_pen = QPen(self.pen_colour, 6)
+        painter.strokePath(outline, stroke_pen)
+        return super().paint(painter, option, widget)
+
+    def set_colour(self, colour: QColor):
+        # self.colour = colour # can be used to change outline colour
+        # self.update(self.boundingRect()) # update needs manually calling in this case
+        self.pen.setColor(colour)
+        self.setPen(self.pen)
+        
+    def set_colour_default(self):
+        self.set_colour(self.default_colour)
+

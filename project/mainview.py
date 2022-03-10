@@ -1,11 +1,10 @@
-from string import ascii_uppercase
 import numpy as np
 from PySide6.QtCore import Qt, QRect, QPoint, QSize, QLineF, QPointF, Signal
 from PySide6.QtWidgets import (QApplication, QGraphicsView, QGraphicsLineItem, 
         QRubberBand, QGraphicsItem)
 from PySide6.QtGui import QPainter, QPen, QColor, QBrush, QUndoStack, QPixmap
 
-from project.nodeitem import NodeItem
+from project.graphitems import NodeItem, LineItem
 from project.commands import *
 
 
@@ -75,6 +74,9 @@ class MainView(QGraphicsView):
                 node1 = self.scene.items()[0]
                 node2 = self.scene.items()[1]
 
+                col_lines = [col_line for col_line in self.scene.collidingItems(line) if isinstance(col_line, LineItem)]
+                col_points = [self.scene.collidingItems(col_line) for col_line in col_lines]
+
                 items = [node1]
                 if node2.scenePos() != node1.scenePos():
                     items.append(node2)
@@ -100,60 +102,23 @@ class MainView(QGraphicsView):
                 else:
                     items = []
 
-                collision = self.scene.collidingItems(line)
-                if len(collision) > 0 and isinstance(collision[-1], QGraphicsLineItem):                    
-                    col_lines = [i for i in collision if isinstance(i, QGraphicsLineItem)]
-                    col_nodes = [i for i in collision if isinstance(i, NodeItem)]
+                if len(col_points) > 0:
+                    line_p1, line_p2 = line.line().p1(), line.line().p2()
+                    for col_line, col_point in zip(col_lines, col_points):
+                        for item in col_point:
+                            if isinstance(item, NodeItem):
+                                node_pos = item.pos()
+                                p1, p2 = col_line.line().p1(), col_line.line().p2()
+                                if (p1 == line_p1 and p2 == line_p2) or (p2 == line_p1 and p1 == line_p2):
+                                    items.remove(line)
+                                    break
 
-                    p1, p2 = line.line().p1(), line.line().p2() # new line points
-                    for col_line in col_lines:
-                        col_p1, col_p2 = col_line.line().p1(), col_line.line().p2() # col line points
-
-                        node1_col = self.scene.collidingItems(items[0]) if len(items) > 0 else None
-                        node2_col = self.scene.collidingItems(items[1]) if len(items) > 1 else None
-                        if (col_p1 == p1 and col_p2 == p2) or (col_p2 == p1 and col_p1 == p2):
-                            items.remove(line)
-                            split_point = None                       
-                        elif node1_col and node1_col[0] == col_line:
-                            split_point = p2
-                        elif node2_col and node2_col[0] == col_line:
-                            split_point = p1
-                        else:
-                            split_point = None # i.e. line does not need to be split
-
-                        if split_point:
-                            line1 = QLineF(col_p1, split_point)
-                            line2 = QLineF(split_point, col_p2)
-                            items.append(QGraphicsLineItem(line1))
-                            items.append(QGraphicsLineItem(line2))
-                            cmds.append(RemoveItemsCommand(self.scene, [col_line]))
-
-                    if len(col_nodes) > 2:
-                        a = list(map(QGraphicsItem.scenePos, col_nodes))
-                    #    # line = QLineF(a[0], a[1])
-                    #    # items.append(QGraphicsLineItem(line))
-
-                    #     for node in col_nodes:
-                    #         if node.collidesWithItem(line):
-                    #             print(items)
-                    #             if line in items:
-                    #                 items.remove(line)
-                                # line1 = QLineF(p1, node.scenePos())
-                                # line2 = QLineF(node.scenePos(), p2)
-                                # items.append(QGraphicsLineItem(line1))
-                                # items.append(QGraphicsLineItem(line2))
-                                
-                               # cmds.append(RemoveItemsCommand(self.scene, [line]))
-
-                        # for col_line in col_lines:
-                        #     col_p1 = col_line.line().p1()
-                        #     col_p2 = col_line.line().p2()
-                        #     if col_line.collidesWithItem()
-                            # if col_p1 == a[0] or col_p1 == a[1] or col_p2 == a[0] or col_p2 == a[1]:
-                            #     print(col_line.line(), line)
-
-                            #cmds.append(RemoveItemsCommand(self.scene, [col_line]))
-
+                                if node_pos != p1 and node_pos != p2:
+                                    line1 = self.get_line(p1, node_pos)
+                                    line2 = self.get_line(node_pos, p2)
+                                    items.append(line1)
+                                    items.append(line2)
+                                    cmds.append(RemoveItemsCommand(self.scene, [col_line]))
 
                 if len(items) > 0:
                     add_command = AddItemsCommand(self.scene, items)
@@ -179,14 +144,14 @@ class MainView(QGraphicsView):
                 mapped_scene = list(map(QGraphicsItem.scenePos, self.scene.items()))
 
                 if mapped_scene.count(item_pos) == 0:
-                    if collision and isinstance(collision[0], QGraphicsLineItem):
+                    if collision and isinstance(collision[0], LineItem):
                         old_line = collision[0]
                         p1, p2 = old_line.line().p1(), old_line.line().p2()
-                        line1 = QLineF(p1, item_pos)
-                        line2 = QLineF(item_pos, p2)
+                        line1 = self.get_line(p1, item_pos) # QLineF(p1, item_pos) 
+                        line2 = self.get_line(item_pos, p2) #  QLineF(item_pos, p2)
                         cmds.append(RemoveItemsCommand(self.scene, [old_line]))
-                        items.append(QGraphicsLineItem(line1))
-                        items.append(QGraphicsLineItem(line2))
+                        items.append(line1)
+                        items.append(line2)
 
                     add_command = AddItemsCommand(self.scene, items)
                     cmds.append(add_command)
@@ -256,6 +221,7 @@ class MainView(QGraphicsView):
         self.img_link = link
         self.set_background(QPainter())
         self.reset_scene()
+        #self.update()
         # code which warns the user to be added later
 
     def set_background(self, painter):
@@ -263,6 +229,7 @@ class MainView(QGraphicsView):
             pic = QPixmap(self.img_link)
             pic_rect = pic.rect()
             self.setSceneRect(pic_rect)
+            
             painter.drawPixmap(pic_rect, pic, pic_rect)
         else:
             self.setSceneRect(self.viewport().geometry())
@@ -275,7 +242,7 @@ class MainView(QGraphicsView):
         if len(collision) > 0 and isinstance(collision[0], NodeItem): # QGraphicsEllipseItem
             point = collision[0].scenePos()
             return point
-        elif len(collision) > 0 and isinstance(collision[0], QGraphicsLineItem):
+        elif len(collision) > 0 and isinstance(collision[0], LineItem):
             line = collision[0].line()
             p1, p2 = line.p1(), line.p2()
             p1 = np.array([p1.x(), p1.y(), 1])
@@ -294,7 +261,7 @@ class MainView(QGraphicsView):
             return None
 
     def add_node(self, point: QPointF, state):
-        brush = QBrush(QColor(0, 0, 0))
+        brush = QBrush(QColor(255, 255, 255))
         node = NodeItem(state, self.diameter/2)        
         node.setBrush(brush)
         node.setPos(point)
@@ -304,13 +271,16 @@ class MainView(QGraphicsView):
         return node
 
     def add_line(self, p1: QPointF, p2: QPointF):
+        self.scene.addItem(self.get_line(p1, p2))
+
+    def get_line(self, p1: QPointF, p2: QPointF) -> LineItem:
         line = QLineF(p1, p2)
         pen = QPen()
-        pen.setColor(QColor(0, 0, 0))
-        pen.setWidth(1)
-        self.scene.addLine(line, pen)
-      #  return line
-
+        pen.setColor(QColor(255, 255, 255))
+        pen.setWidth(4)
+        line_item = LineItem(line, pen)
+        return line_item
+        
     def push_to_stack(self, cmds: list):        
         if len(cmds) > 1:
             self.command_stack.beginMacro('')
@@ -322,7 +292,7 @@ class MainView(QGraphicsView):
 
     def first_line(self):
         for item in self.scene.items():
-            if isinstance(item, QGraphicsLineItem):
+            if isinstance(item, LineItem):
                 return item
 
     def first_star(self):
@@ -366,42 +336,108 @@ class MainView(QGraphicsView):
         return int(a)
     
     def get_line_count(self):
-        a = np.sum([1 for item in self.scene.items() if isinstance(item, QGraphicsLineItem)])
+        a = np.sum([1 for item in self.scene.items() if isinstance(item, LineItem)])
         return int(a)
 
     def get_graph(self):
         graph = {}
-        letters = ascii_uppercase
+        # letters = ascii_uppercase
         t_nodes = [item.pos() for item in self.scene.items() if isinstance(item, NodeItem) and item.state == 1]
         if len(t_nodes) == 2:
-            nodes = [item.pos() for item in self.scene.items() if isinstance(item, NodeItem)] 
-            print(nodes)           
-            arcs = [item.line() for item in self.scene.items() if isinstance(item, QGraphicsLineItem)]
+            nodes = [item.pos() for item in self.scene.items() if isinstance(item, NodeItem)]
+            arcs = [item.line() for item in self.scene.items() if isinstance(item, LineItem)]
 
             for arc in arcs:
                 p1, p2 = arc.p1(), arc.p2()
                 length = arc.length()
-
-                c_nodes = (letters[nodes.index(p1)], letters[nodes.index(p2)])
-
+                c_nodes = (nodes.index(p1), nodes.index(p2)) #
                 for i in range(2):
                     if c_nodes[i] in graph:
                         graph[c_nodes[i]].update({c_nodes[1-i]:length})                
                     else:
                         graph[c_nodes[i]] = {c_nodes[1-i]:length}
-            start, end = letters[nodes.index(t_nodes[0])], letters[nodes.index(t_nodes[1])]
+
+            start, end = nodes.index(t_nodes[0]), nodes.index(t_nodes[1]) # letters
             nodes_tuple = [node.toTuple() for node in nodes]
             return graph, start, end, nodes_tuple
-
         else:
             return None, None, None, None
     
-    def colour_change(self, items):
-        item_points = [QPointF(item[0], item[1]) for item in items]
-        brush = QBrush(QColor(255, 0, 0))
+    def highlight_path(self, items):
+        colour = QColor(255, 0, 0)
+       # item_points = [QPointF(item[0], item[1]) for item in items]
+        item_points = [QPointF(*item) for item in items]
+        # brush = QBrush(colour) # used for nodes if their colour is to be changed
         
         scene_items = self.scene.items()
         mapped_scene = list(map(QGraphicsItem.scenePos, scene_items))
-        for item in item_points:
-            scene_items[mapped_scene.index(item)].setBrush(brush)
+        # sets all lines to default colour
+        [i.set_colour_default() for i in scene_items if isinstance(i, LineItem)]
+
+        selected_lines = []
+
+        for node1, node2 in zip(item_points, item_points[1:]):
+            current_node = scene_items[mapped_scene.index(node1)]
+            # next_node = item_points[i+1] #  was used for nodes, not functional
+            # current_node.setBrush(brush) #  was used for nodes, not functional
+            collision = self.scene.collidingItems(current_node) 
+            col_lines = [i for i in collision if isinstance(i, LineItem)]
             
+            for line in col_lines:
+                if line.line().p1() == node2 or line.line().p2() == node2:
+                    selected_lines.append(line)
+                    # line.set_colour(colour)
+                    break
+        
+        self.push_to_stack([HighlightPathCommand(selected_lines, colour)])
+        
+        route_length = np.sum([line.line().length() for line in selected_lines])
+        return route_length
+
+    def get_scene_state(self):
+        items = {'nodes':{}, 't_nodes':{},'lines':{}, 'image':''}
+        node_count, t_node_count, line_count = 0, 0, 0
+        for item in self.scene.items():
+            if isinstance(item, NodeItem):
+                if item.state == 0:
+                    node_count += 1              
+                    node_data = {f'node{node_count}':{'pos': item.pos().toTuple()}}
+                    items['nodes'].update(node_data)# , 'state': item.state}}
+                    
+                else:
+                    t_node_count += 1
+                    node_data = {f't_node{t_node_count}':{'pos': item.pos().toTuple()}}
+                    items['t_nodes'].update(node_data)
+               # items['nodes'].update(node_data)
+
+            elif isinstance(item, LineItem):
+                line = item.line()
+                line_count += 1
+                line_data = {f'line{line_count}':{'p1': line.p1().toTuple(), 'p2': line.p2().toTuple()}}
+              #  line_data = {f'line{line_count}':{'line': line.toTuple()}}
+                items['lines'].update(line_data)
+
+        if self.img_link:
+            items['image'] = self.img_link
+        return items
+    
+    def load_scene_state(self, data):
+        self.reset_scene()
+        nodes, t_nodes, lines = data['nodes'], data['t_nodes'], data['lines']
+
+        if data['image']:
+            self.set_image(data['image'])
+        else:
+            self.set_image('')
+        
+        for node in nodes:
+            pos = nodes[node]['pos']
+            self.add_node(QPointF(*pos), 0)
+        
+        for t_node in t_nodes:
+            pos = t_nodes[t_node]['pos']
+            self.add_node(QPointF(*pos), 1)
+
+        for line in lines:
+            p1, p2 = lines[line]['p1'], lines[line]['p2']
+            self.add_line(QPointF(*p1) , QPointF(*p2))

@@ -26,7 +26,6 @@ class MainWindow(QMainWindow):
         self.node_label = QLabel(f"Nodes: 0 ")
         self.length_label = QLabel(f"Route Length: ? ")
 
-
         self.file_name = ''
         self.unit = 'm'
         self.scale = 0
@@ -93,10 +92,14 @@ class MainWindow(QMainWindow):
         reset_action.triggered.connect(self.reset_view)
 
         set_scale_action = QAction('Set Scale...', self)
-        set_scale_action.triggered.connect(self.set_scale_dialogue)
+        set_scale_action.triggered.connect(self.set_scale_dialog)
 
         set_unit_action = QAction('Set Unit...', self)
-        set_unit_action.triggered.connect(self.set_unit_dialogue)
+        set_unit_action.triggered.connect(self.set_unit_dialog)
+
+        help_action = QAction('Help', self)
+        help_action.setShortcut(QKeySequence.StandardKey.HelpContents)
+        help_action.triggered.connect(self.help_dialog)
 
         filemenu = QMenu('File', self)
         filemenu.addActions((reset_action, add_image_action, open_action, save_action, save_as_action))
@@ -107,10 +110,14 @@ class MainWindow(QMainWindow):
         viewmenu = QMenu('View', self)
         viewmenu.addActions((zoom_in_action, zoom_out_action))
 
+        helpmenu = QMenu('Help', self)
+        helpmenu.addAction(help_action)
+
         menubar = self.menuBar()
         menubar.addMenu(filemenu)
         menubar.addMenu(editmenu)
         menubar.addMenu(viewmenu)
+        menubar.addMenu(helpmenu)
 
         self.status_bar.addPermanentWidget(self.zoom_bar)
         self.status_bar.addWidget(self.arc_label)
@@ -219,15 +226,23 @@ class MainWindow(QMainWindow):
         msg_box.setText(error)
         msg_box.exec()
 
-    def set_scale_dialogue(self):
-        actual_size, _ = QInputDialog.getDouble(self, 'Scale', f'Width of the image or scene in {self.unit}:')
+    def set_scale_dialog(self):
+        actual_size, _ = QInputDialog.getDouble(self, 'Scale', f'Width of the image or scene in {self.unit}:', 0, 0)
         scene_size = self.main_view.sceneRect().width()
         scale = actual_size/scene_size
         self.scale = scale
     
-    def set_unit_dialogue(self):
+    def set_unit_dialog(self):
         unit, _ = QInputDialog.getText(self, 'Unit', f'Unit:')
         self.unit = unit
+
+    def help_dialog(self):
+        msg_box = QMessageBox()
+        # msg_box.setIcon(QMessageBox.Warning)
+        msg_box.setWindowTitle("Help")
+        msg_box.setText('Left click creates arcs and nodes.\nCreate arcs between nodes by dragging.\n' +
+                                    'Right click removes arcs and nodes.\nDrag to remove multiple at once.')
+        msg_box.exec()
 
 
 # Main Function
